@@ -1,0 +1,49 @@
+{
+    "bot": {
+        "name": "Ronin",
+        "version": "1.0.0",
+        "description": "Бот для обучения Data Science",
+        "commands": {
+            "start": "Начать работу с ботом",
+            "help": "Показать справку",
+            "plan": "Показать план обучения",
+            "progress": "Показать прогресс",
+            "vote_topic": "Предложить тему для изучения",
+            "ask": "Задать вопрос",
+            "feedback": "Оставить отзыв"
+        }
+    },
+    "learning": {
+        "daily_goal": 5,
+        "max_messages_per_day": 50,
+        "min_message_interval": 60,
+        "max_message_length": 1000,
+        "topics_per_day": 1,
+        "feedback_interval": 7
+    },
+    "moderation": {
+        "max_warnings": 3,
+        "warning_duration": 86400,
+        "ban_duration": 604800,
+        "spam_threshold": 5,
+        "spam_interval": 300
+    },
+    "notifications": {
+        "morning_time": "09:00",
+        "evening_time": "20:00",
+        "reminder_interval": 3600,
+        "feedback_reminder": 604800
+    },
+    "database": {
+        "path": "data/database.db",
+        "backup_interval": 86400,
+        "max_backups": 7
+    },
+    "logging": {
+        "level": "INFO",
+        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        "file": "data/logs/bot.log",
+        "max_size": 10485760,
+        "backup_count": 5
+    }
+} 

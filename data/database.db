@@ -1,0 +1,87 @@
+-- Создание таблицы пользователей
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    username TEXT,
+    first_name TEXT,
+    last_name TEXT,
+    join_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_banned BOOLEAN DEFAULT FALSE,
+    ban_reason TEXT,
+    ban_until TIMESTAMP,
+    warnings INTEGER DEFAULT 0,
+    last_warning TIMESTAMP
+);
+
+-- Создание таблицы сообщений
+CREATE TABLE IF NOT EXISTS messages (
+    message_id INTEGER PRIMARY KEY,
+    user_id INTEGER,
+    chat_id INTEGER,
+    text TEXT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
+-- Создание таблицы тем
+CREATE TABLE IF NOT EXISTS topics (
+    topic_id INTEGER PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+-- Создание таблицы голосов за темы
+CREATE TABLE IF NOT EXISTS topic_votes (
+    vote_id INTEGER PRIMARY KEY,
+    user_id INTEGER,
+    topic_id INTEGER,
+    vote_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id),
+    FOREIGN KEY (topic_id) REFERENCES topics(topic_id)
+);
+
+-- Создание таблицы прогресса
+CREATE TABLE IF NOT EXISTS progress (
+    progress_id INTEGER PRIMARY KEY,
+    user_id INTEGER,
+    topic_id INTEGER,
+    completed_tasks INTEGER DEFAULT 0,
+    total_tasks INTEGER,
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id),
+    FOREIGN KEY (topic_id) REFERENCES topics(topic_id)
+);
+
+-- Создание таблицы отзывов
+CREATE TABLE IF NOT EXISTS feedback (
+    feedback_id INTEGER PRIMARY KEY,
+    user_id INTEGER,
+    rating INTEGER,
+    comment TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
+-- Создание таблицы метрик
+CREATE TABLE IF NOT EXISTS metrics (
+    metric_id INTEGER PRIMARY KEY,
+    user_id INTEGER,
+    metric_name TEXT,
+    metric_value REAL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
+-- Создание индексов
+CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id);
+CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
+CREATE INDEX IF NOT EXISTS idx_topic_votes_user_id ON topic_votes(user_id);
+CREATE INDEX IF NOT EXISTS idx_topic_votes_topic_id ON topic_votes(topic_id);
+CREATE INDEX IF NOT EXISTS idx_progress_user_id ON progress(user_id);
+CREATE INDEX IF NOT EXISTS idx_progress_topic_id ON progress(topic_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_user_id ON feedback(user_id);
+CREATE INDEX IF NOT EXISTS idx_metrics_user_id ON metrics(user_id);
+CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON metrics(timestamp); 

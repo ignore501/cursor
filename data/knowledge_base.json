@@ -1,0 +1,91 @@
+{
+    "concepts": {
+        "data_science": {
+            "description": "Наука о данных - междисциплинарная область, использующая научные методы, процессы, алгоритмы и системы для извлечения знаний и идей из структурированных и неструктурированных данных.",
+            "key_points": [
+                "Сбор и подготовка данных",
+                "Анализ и визуализация",
+                "Построение моделей",
+                "Интерпретация результатов"
+            ],
+            "resources": [
+                "https://www.kaggle.com/learn/intro-to-data-science",
+                "https://www.coursera.org/learn/data-science"
+            ]
+        },
+        "machine_learning": {
+            "description": "Машинное обучение - подраздел искусственного интеллекта, изучающий методы построения алгоритмов, способных обучаться на данных.",
+            "key_points": [
+                "Обучение с учителем",
+                "Обучение без учителя",
+                "Обучение с подкреплением",
+                "Глубокое обучение"
+            ],
+            "resources": [
+                "https://www.kaggle.com/learn/intro-to-machine-learning",
+                "https://www.coursera.org/learn/machine-learning"
+            ]
+        },
+        "feature_engineering": {
+            "description": "Feature Engineering - процесс создания новых признаков из имеющихся данных для улучшения качества моделей машинного обучения.",
+            "key_points": [
+                "Создание новых признаков",
+                "Отбор признаков",
+                "Преобразование признаков",
+                "Работа с категориальными переменными"
+            ],
+            "resources": [
+                "https://www.kaggle.com/learn/feature-engineering",
+                "https://www.coursera.org/learn/feature-engineering"
+            ]
+        }
+    },
+    "tools": {
+        "python": {
+            "description": "Основной язык программирования для Data Science",
+            "libraries": [
+                "pandas",
+                "numpy",
+                "scikit-learn",
+                "matplotlib",
+                "seaborn"
+            ],
+            "resources": [
+                "https://www.python.org/",
+                "https://www.kaggle.com/learn/python"
+            ]
+        },
+        "jupyter": {
+            "description": "Интерактивная среда для работы с данными и кодом",
+            "features": [
+                "Интерактивные ноутбуки",
+                "Визуализация данных",
+                "Документирование кода",
+                "Совместная работа"
+            ],
+            "resources": [
+                "https://jupyter.org/",
+                "https://www.kaggle.com/learn/jupyter"
+            ]
+        }
+    },
+    "datasets": {
+        "titanic": {
+            "description": "Классический набор данных для изучения машинного обучения",
+            "features": [
+                "Пассажирская информация",
+                "Выживание",
+                "Социально-экономические данные"
+            ],
+            "url": "https://www.kaggle.com/c/titanic"
+        },
+        "iris": {
+            "description": "Набор данных о цветках ириса",
+            "features": [
+                "Размеры цветка",
+                "Вид ириса"
+            ],
+            "url": "https://www.kaggle.com/datasets/uciml/iris"
+        }
+    }
+} 
