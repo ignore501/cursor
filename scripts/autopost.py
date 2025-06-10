@@ -3,8 +3,9 @@
 """
 import logging
 from datetime import datetime, time
+from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import mlflow
 import pandas as pd
@@ -43,9 +44,34 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Инициализация MLflow
+# Инициализация MLflow с кэшированием
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 mlflow.set_experiment(EXPERIMENT_NAME)
+
+# Кэширование метрик MLflow
+@lru_cache(maxsize=128)
+def get_cached_metrics(date_str: str) -> Dict:
+    """Кэшированное получение метрик из MLflow."""
+    runs = mlflow.search_runs(
+        experiment_names=[EXPERIMENT_NAME],
+        filter_string=f"start_time >= '{date_str}'"
+    )
+    
+    if runs.empty:
+        return {}
+        
+    latest_run = runs.iloc[0]
+    return {
+        "accuracy": latest_run.get("metrics.accuracy", 0),
+        "loss": latest_run.get("metrics.loss", 0),
+        "f1": latest_run.get("metrics.f1", 0),
+        "precision": latest_run.get("metrics.precision", 0),
+        "recall": latest_run.get("metrics.recall", 0),
+        "auc": latest_run.get("metrics.auc", 0),
+        "rmse": latest_run.get("metrics.rmse", 0),
+        "mae": latest_run.get("metrics.mae", 0),
+        "r2": latest_run.get("metrics.r2", 0)
+    }
 
 class KaggleLearningBot:
     """Основной класс бота для автоматизации постов."""
@@ -59,20 +85,28 @@ class KaggleLearningBot:
         self.db = Database()
         
         # Регистрация обработчиков команд
-        self.application.add_handler(CommandHandler("start", self.start))
-        self.application.add_handler(CommandHandler("vote_topic", self.vote_topic))
-        self.application.add_handler(CommandHandler("help", self.help_command))
-        self.application.add_handler(CommandHandler("stats", self.user_stats))
-        self.application.add_handler(CommandHandler("unblock", self.unblock_user))
-        self.application.add_handler(CommandHandler("topics", self.list_topics))
-        self.application.add_handler(CommandHandler("vote", self.vote_for_topic))
-        
-        # Обработчик всех сообщений для модерации
-        self.application.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, self.moderate_message)
-        )
+        self._register_handlers()
         
         # Планировщик постов
+        self._setup_jobs()
+
+    def _register_handlers(self) -> None:
+        """Регистрация обработчиков команд."""
+        handlers = [
+            CommandHandler("start", self.start),
+            CommandHandler("vote_topic", self.vote_topic),
+            CommandHandler("help", self.help_command),
+            CommandHandler("stats", self.user_stats),
+            CommandHandler("unblock", self.unblock_user),
+            CommandHandler("topics", self.list_topics),
+            CommandHandler("vote", self.vote_for_topic),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, self.moderate_message)
+        ]
+        for handler in handlers:
+            self.application.add_handler(handler)
+
+    def _setup_jobs(self) -> None:
+        """Настройка планировщика постов."""
         self.application.job_queue.run_daily(
             self.morning_post,
             time=time(hour=9, minute=0),
@@ -87,7 +121,7 @@ class KaggleLearningBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /start."""
         user = update.message.from_user
-        self.db.add_user(
+        await self.db.add_user(
             user_id=user.id,
             username=user.username,
             first_name=user.first_name,
@@ -123,13 +157,20 @@ class KaggleLearningBot:
             return
 
         topic = " ".join(context.args)
-        topic_id = self.db.add_voting_topic(topic, update.message.from_user.id)
-        
-        await update.message.reply_text(
-            f"Тема '{topic}' добавлена для голосования! "
-            f"ID темы: {topic_id}\n"
-            f"Используйте /vote {topic_id} для голосования."
-        )
+        if len(topic) > 200:  # Ограничение длины темы
+            await update.message.reply_text("Тема слишком длинная. Максимальная длина - 200 символов.")
+            return
+
+        try:
+            topic_id = await self.db.add_voting_topic(topic, update.message.from_user.id)
+            await update.message.reply_text(
+                f"Тема '{topic}' добавлена для голосования!\n"
+                f"ID темы: {topic_id}\n"
+                f"Используйте /vote {topic_id} для голосования."
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при добавлении темы: {e}")
+            await update.message.reply_text("Произошла ошибка при добавлении темы. Попробуйте позже.")
 
     async def vote_for_topic(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /vote."""
@@ -141,85 +182,89 @@ class KaggleLearningBot:
             
         try:
             topic_id = int(context.args[0])
-            self.db.vote_for_topic(topic_id)
+            if topic_id <= 0:
+                raise ValueError("ID темы должен быть положительным числом")
+                
+            await self.db.vote_for_topic(topic_id)
             await update.message.reply_text(f"Ваш голос за тему {topic_id} учтен!")
-        except ValueError:
-            await update.message.reply_text("Неверный формат ID темы")
+        except ValueError as e:
+            await update.message.reply_text(f"Неверный формат ID темы: {str(e)}")
+        except Exception as e:
+            logger.error(f"Ошибка при голосовании: {e}")
+            await update.message.reply_text("Произошла ошибка при голосовании. Попробуйте позже.")
 
     async def list_topics(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /topics."""
-        topics = self.db.get_voting_topics(limit=10)
-        
-        if not topics:
-            await update.message.reply_text("Нет доступных тем для голосования")
-            return
+        try:
+            topics = await self.db.get_voting_topics(limit=10)
             
-        message = "Темы для голосования:\n\n"
-        for topic_id, topic, votes, created_at in topics:
-            message += f"ID: {topic_id}\n"
-            message += f"Тема: {topic}\n"
-            message += f"Голосов: {votes}\n"
-            message += f"Добавлена: {created_at}\n\n"
-            
-        await update.message.reply_text(message)
+            if not topics:
+                await update.message.reply_text("Нет доступных тем для голосования")
+                return
+                
+            message = "Темы для голосования:\n\n"
+            for topic_id, topic, votes, created_at in topics:
+                message += (
+                    f"ID: {topic_id}\n"
+                    f"Тема: {topic}\n"
+                    f"Голосов: {votes}\n"
+                    f"Добавлена: {created_at}\n\n"
+                )
+                
+            await update.message.reply_text(message)
+        except Exception as e:
+            logger.error(f"Ошибка при получении списка тем: {e}")
+            await update.message.reply_text("Произошла ошибка при получении списка тем. Попробуйте позже.")
 
     async def morning_post(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Генерация и публикация утреннего поста."""
         try:
             post = self.post_generator.generate_morning_post()
+            if not post:
+                logger.warning("Не удалось сгенерировать утренний пост")
+                return
+                
             await context.bot.send_message(
                 chat_id=CHANNEL_ID,
                 text=post,
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                disable_web_page_preview=True  # Отключаем предпросмотр ссылок
             )
             logger.info("Утренний пост успешно опубликован")
         except Exception as e:
-            logger.error(f"Ошибка при публикации утреннего поста: {e}")
+            logger.error(f"Ошибка при публикации утреннего поста: {e}", exc_info=True)
 
     async def evening_post(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Генерация и публикация вечернего поста."""
         try:
-            # Получение метрик из MLflow
-            metrics = self.get_today_metrics()
-            
-            # Генерация поста
+            metrics = await self.get_today_metrics()
+            if not metrics:
+                logger.warning("Не удалось получить метрики для вечернего поста")
+                return
+                
             post = self.post_generator.generate_evening_post(metrics)
-            
+            if not post:
+                logger.warning("Не удалось сгенерировать вечерний пост")
+                return
+                
             await context.bot.send_message(
                 chat_id=CHANNEL_ID,
                 text=post,
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                disable_web_page_preview=True
             )
             logger.info("Вечерний пост успешно опубликован")
         except Exception as e:
-            logger.error(f"Ошибка при публикации вечернего поста: {e}")
+            logger.error(f"Ошибка при публикации вечернего поста: {e}", exc_info=True)
 
-    def get_today_metrics(self) -> Dict:
+    async def get_today_metrics(self) -> Dict:
         """Получение метрик за сегодня из MLflow."""
-        today = datetime.now().date()
-        metrics = {}
-        
-        # Получение последнего запуска эксперимента
-        runs = mlflow.search_runs(
-            experiment_names=[EXPERIMENT_NAME],
-            filter_string=f"start_time >= '{today}'"
-        )
-        
-        if not runs.empty:
-            latest_run = runs.iloc[0]
-            metrics = {
-                "accuracy": latest_run.get("metrics.accuracy", 0),
-                "loss": latest_run.get("metrics.loss", 0),
-                "f1": latest_run.get("metrics.f1", 0),
-                "precision": latest_run.get("metrics.precision", 0),
-                "recall": latest_run.get("metrics.recall", 0),
-                "auc": latest_run.get("metrics.auc", 0),
-                "rmse": latest_run.get("metrics.rmse", 0),
-                "mae": latest_run.get("metrics.mae", 0),
-                "r2": latest_run.get("metrics.r2", 0)
-            }
-        
-        return metrics
+        try:
+            today = datetime.now().date()
+            return get_cached_metrics(str(today))
+        except Exception as e:
+            logger.error(f"Ошибка при получении метрик: {e}", exc_info=True)
+            return {}
 
     async def moderate_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Модерация входящих сообщений."""
@@ -239,7 +284,7 @@ class KaggleLearningBot:
             
         try:
             user_id = int(context.args[0])
-            stats = self.db.get_user_stats(user_id)
+            stats = await self.db.get_user_stats(user_id)
             
             if stats:
                 message = (
@@ -251,15 +296,14 @@ class KaggleLearningBot:
                     f"Статус: {'Заблокирован' if stats['is_blocked'] else 'Активен'}\n"
                     f"Дата регистрации: {stats['created_at']}"
                 )
+                await update.message.reply_text(message)
             else:
-                message = f"Статистика для пользователя {user_id} не найдена"
-                
-            await update.message.reply_text(message)
+                await update.message.reply_text("Пользователь не найден")
         except ValueError:
             await update.message.reply_text("Неверный формат ID пользователя")
 
     async def unblock_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Разблокировать пользователя."""
+        """Разблокировка пользователя."""
         if not context.args:
             await update.message.reply_text(
                 "Пожалуйста, укажите ID пользователя. Пример: /unblock 123456789"
@@ -268,14 +312,13 @@ class KaggleLearningBot:
             
         try:
             user_id = int(context.args[0])
-            self.db.unblock_user(user_id)
+            await self.db.unblock_user(user_id)
             await update.message.reply_text(f"Пользователь {user_id} разблокирован")
         except ValueError:
             await update.message.reply_text("Неверный формат ID пользователя")
 
     def run(self):
         """Запуск бота."""
-        logger.info("Запуск бота...")
         self.application.run_polling()
 
 if __name__ == "__main__":

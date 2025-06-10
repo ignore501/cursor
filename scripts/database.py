@@ -1,10 +1,12 @@
 """
 Модуль для работы с базой данных SQLite.
 """
+import asyncio
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from contextlib import asynccontextmanager
 
 from config import BASE_DIR
 
@@ -15,7 +17,25 @@ class Database:
         """Инициализация базы данных."""
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._pool = asyncio.Queue(maxsize=10)  # Пул соединений
+        self._init_pool()
         self._init_db()
+
+    def _init_pool(self) -> None:
+        """Инициализация пула соединений."""
+        for _ in range(10):
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            self._pool.put_nowait(conn)
+
+    @asynccontextmanager
+    async def _get_connection(self):
+        """Получение соединения из пула."""
+        conn = await self._pool.get()
+        try:
+            yield conn
+        finally:
+            await self._pool.put(conn)
 
     def _init_db(self) -> None:
         """Инициализация таблиц базы данных."""
@@ -58,11 +78,16 @@ class Database:
                 )
             """)
             
+            # Индексы для оптимизации запросов
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_voting_topics_votes ON voting_topics(votes)")
+            
             conn.commit()
 
-    def add_user(self, user_id: int, username: str, first_name: str, last_name: str) -> None:
+    async def add_user(self, user_id: int, username: str, first_name: str, last_name: str) -> None:
         """Добавление нового пользователя."""
-        with sqlite3.connect(self.db_path) as conn:
+        async with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT OR IGNORE INTO users (user_id, username, first_name, last_name)
@@ -70,9 +95,9 @@ class Database:
             """, (user_id, username, first_name, last_name))
             conn.commit()
 
-    def add_message(self, user_id: int, text: str) -> None:
+    async def add_message(self, user_id: int, text: str) -> None:
         """Добавление нового сообщения."""
-        with sqlite3.connect(self.db_path) as conn:
+        async with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO messages (user_id, text)
@@ -80,9 +105,9 @@ class Database:
             """, (user_id, text))
             conn.commit()
 
-    def add_warning(self, user_id: int) -> int:
+    async def add_warning(self, user_id: int) -> int:
         """Добавление предупреждения пользователю."""
-        with sqlite3.connect(self.db_path) as conn:
+        async with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 UPDATE users
@@ -96,9 +121,9 @@ class Database:
             conn.commit()
             return warnings
 
-    def block_user(self, user_id: int) -> None:
+    async def block_user(self, user_id: int) -> None:
         """Блокировка пользователя."""
-        with sqlite3.connect(self.db_path) as conn:
+        async with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 UPDATE users
@@ -107,9 +132,9 @@ class Database:
             """, (user_id,))
             conn.commit()
 
-    def unblock_user(self, user_id: int) -> None:
+    async def unblock_user(self, user_id: int) -> None:
         """Разблокировка пользователя."""
-        with sqlite3.connect(self.db_path) as conn:
+        async with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 UPDATE users
@@ -118,9 +143,9 @@ class Database:
             """, (user_id,))
             conn.commit()
 
-    def get_user_stats(self, user_id: int) -> Optional[Dict]:
+    async def get_user_stats(self, user_id: int) -> Optional[Dict]:
         """Получение статистики пользователя."""
-        with sqlite3.connect(self.db_path) as conn:
+        async with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT u.*, COUNT(m.message_id) as message_count
@@ -132,31 +157,20 @@ class Database:
             result = cursor.fetchone()
             
             if result:
-                return {
-                    "user_id": result[0],
-                    "username": result[1],
-                    "first_name": result[2],
-                    "last_name": result[3],
-                    "warnings": result[4],
-                    "is_blocked": bool(result[5]),
-                    "created_at": result[6],
-                    "message_count": result[7]
-                }
+                return dict(result)
             return None
 
-    def get_message_count(self, user_id: Optional[int], time_delta: timedelta) -> int:
+    async def get_message_count(self, user_id: Optional[int], time_delta: timedelta) -> int:
         """Получение количества сообщений за период."""
-        with sqlite3.connect(self.db_path) as conn:
+        async with self._get_connection() as conn:
             cursor = conn.cursor()
             
             if user_id is None:
-                # Получение общего количества сообщений
                 cursor.execute("""
                     SELECT COUNT(*) FROM messages
                     WHERE created_at >= datetime('now', ?)
                 """, (f"-{time_delta.total_seconds()} seconds",))
             else:
-                # Получение количества сообщений пользователя
                 cursor.execute("""
                     SELECT COUNT(*) FROM messages
                     WHERE user_id = ? AND created_at >= datetime('now', ?)
@@ -164,17 +178,23 @@ class Database:
                 
             return cursor.fetchone()[0]
 
-    def get_messages_per_period(self, user_id: int) -> Dict[str, int]:
+    async def get_messages_per_period(self, user_id: int) -> Dict[str, int]:
         """Получение количества сообщений за разные периоды."""
+        tasks = [
+            self.get_message_count(user_id, timedelta(minutes=1)),
+            self.get_message_count(user_id, timedelta(hours=1)),
+            self.get_message_count(user_id, timedelta(days=1))
+        ]
+        results = await asyncio.gather(*tasks)
         return {
-            "per_minute": self.get_message_count(user_id, timedelta(minutes=1)),
-            "per_hour": self.get_message_count(user_id, timedelta(hours=1)),
-            "per_day": self.get_message_count(user_id, timedelta(days=1))
+            "per_minute": results[0],
+            "per_hour": results[1],
+            "per_day": results[2]
         }
 
-    def add_voting_topic(self, topic: str, proposed_by: int) -> int:
+    async def add_voting_topic(self, topic: str, proposed_by: int) -> int:
         """Добавление новой темы для голосования."""
-        with sqlite3.connect(self.db_path) as conn:
+        async with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO voting_topics (topic, proposed_by)
@@ -184,9 +204,9 @@ class Database:
             conn.commit()
             return topic_id
 
-    def get_voting_topics(self, limit: int = 10) -> List[Tuple]:
+    async def get_voting_topics(self, limit: int = 10) -> List[Tuple]:
         """Получение списка тем для голосования."""
-        with sqlite3.connect(self.db_path) as conn:
+        async with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT topic_id, topic, votes, created_at
@@ -196,9 +216,9 @@ class Database:
             """, (limit,))
             return cursor.fetchall()
 
-    def vote_for_topic(self, topic_id: int) -> None:
+    async def vote_for_topic(self, topic_id: int) -> None:
         """Голосование за тему."""
-        with sqlite3.connect(self.db_path) as conn:
+        async with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 UPDATE voting_topics
