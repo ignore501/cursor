@@ -4,6 +4,9 @@ on:
   schedule:
     - cron: '0 9,20 * * *'  # Запуск в 9:00 и 20:00 UTC
   workflow_dispatch:  # Ручной запуск
+  push:
+    branches:
+      - main
 
 jobs:
   post:
@@ -11,6 +14,8 @@ jobs:
     
     steps:
     - uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
     
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -22,17 +27,25 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         
-    - name: Run bot
+    - name: Run autopost
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
         MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
       run: python scripts/autopost.py
-      
+        
+    - name: Run background agent
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_OWNER: ${{ github.repository_owner }}
+      run: python scripts/background_agent.py
+        
     - name: Notify on failure
       if: failure()
       uses: actions/github-script@v6
       with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
         script: |
           github.rest.issues.create({
             owner: context.repo.owner,
