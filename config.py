@@ -23,7 +23,7 @@ MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
 EXPERIMENT_NAME = "kaggle_learning_progress"
 
 # Временные настройки
-MORNING_POST_TIME = "09:00"  # Время публикации утреннего поста
+MORNING_POST_TIME = "08:40"  # Время публикации утреннего поста
 EVENING_POST_TIME = "20:00"  # Время публикации вечернего поста
 
 # Настройки для парсинга Jupyter
