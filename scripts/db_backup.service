@@ -1,0 +1,15 @@
+[Unit]
+Description=Database Backup Service
+After=network.target
+
+[Service]
+Type=oneshot
+User=ronin
+Group=ronin
+WorkingDirectory=/home/ronin/ronin_tg_app
+ExecStart=/home/ronin/ronin_tg_app/venv/bin/python /home/ronin/ronin_tg_app/scripts/backup_db.py --max-backups 3
+StandardOutput=append:/home/ronin/ronin_tg_app/logs/backup.log
+StandardError=append:/home/ronin/ronin_tg_app/logs/backup.error.log
+
+[Install]
+WantedBy=multi-user.target 

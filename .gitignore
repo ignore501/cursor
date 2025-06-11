@@ -55,4 +55,8 @@ mlruns/
 
 # DVC
 .dvc/
-.dvcignore 
+.dvcignore
+
+# Backups
+backups/
+*.backup* 

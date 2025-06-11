@@ -1,15 +1,52 @@
 # Руководство разработчика
 
+## Содержание
+1. [Начало работы](#начало-работы)
+2. [Структура кода](#структура-кода)
+3. [Разработка](#разработка)
+4. [Тестирование](#тестирование)
+5. [Деплой](#деплой)
+6. [Мониторинг](#мониторинг)
+7. [Оптимизация](#оптимизация)
+8. [Безопасность](#безопасность)
+9. [Отладка](#отладка)
+
 ## Начало работы
 
-1. Установите зависимости для разработки:
+### Предварительные требования
+- Python 3.10+
+- Docker и Docker Compose
+- Redis
+- Git
+
+### Установка
+
+1. Клонируйте репозиторий:
+```bash
+git clone https://github.com/yourusername/ronin-tg-app.git
+cd ronin-tg-app
+```
+
+2. Создайте виртуальное окружение:
+```bash
+python -m venv venv
+source venv/bin/activate  # для Linux/Mac
+venv\Scripts\activate     # для Windows
+```
+
+3. Установите зависимости:
 ```bash
 pip install -r requirements-dev.txt
 ```
 
-2. Настройте pre-commit хуки:
+4. Настройте pre-commit хуки:
 ```bash
 pre-commit install
+```
+
+5. Создайте файл .env:
+```bash
+cp .env.example .env
 ```
 
 ## Структура кода
@@ -17,43 +54,21 @@ pre-commit install
 ### Основные компоненты
 
 ```
-scripts/
-├── autopost.py      # Основной скрипт бота
-│   ├── KaggleLearningBot - Основной класс бота
-│   ├── Команды и обработчики
-│   └── Планировщик постов
-├── database.py      # Работа с БД
-│   ├── Database - Класс для работы с БД
-│   ├── Асинхронные операции
-│   └── Миграции
-├── jupyter_parser.py # Парсинг Jupyter ноутбуков
-│   ├── JupyterParser - Парсинг ноутбуков
-│   ├── Извлечение метрик
-│   └── Обработка кода
-├── moderator.py     # Модерация сообщений
-│   ├── Moderator - Модерация контента
-│   ├── RateLimit - Ограничение частоты
-│   └── Фильтры
-├── post_templates.py # Шаблоны постов
-│   ├── PostGenerator - Генерация постов
-│   ├── Шаблоны
-│   └── Форматирование
-├── metrics.py       # Метрики и мониторинг
-│   ├── Metrics - Метрики Prometheus
-│   ├── Логирование
-│   └── Декораторы
-├── cache.py         # Работа с Redis
-│   ├── Cache - Кеширование
-│   ├── Операции с Redis
-│   └── Декораторы
-├── check.py         # Проверка кода
-│   ├── Проверка безопасности
-│   ├── Проверка типов
-│   └── Форматирование
-└── deploy.py        # Скрипт деплоя
-    ├── Deployer - Управление деплоем
-    ├── Бэкапы
-    └── Проверки
+src/
+├── bot/                    # Основной модуль бота
+│   ├── handlers/          # Обработчики команд
+│   └── main.py           # Точка входа
+├── core/                  # Основная логика
+│   ├── posts/            # Управление постами
+│   ├── learning/         # Работа с ноутбуками
+│   └── moderation/       # Модерация и голосования
+├── utils/                # Вспомогательные функции
+│   ├── templates/        # Шаблоны постов
+│   ├── database/         # Работа с БД
+│   └── summarizer/       # Суммаризация текста
+└── ui/                   # Пользовательский интерфейс
+    ├── keyboards/        # Клавиатуры
+    └── messages/         # Шаблоны сообщений
 ```
 
 ### Тесты
@@ -61,40 +76,16 @@ scripts/
 ```
 tests/
 ├── __init__.py
-├── conftest.py      # Конфигурация тестов
-├── test_autopost.py # Тесты основного скрипта
-├── test_bot.py      # Тесты бота
-├── test_config.py   # Тесты конфигурации
-├── test_database.py # Тесты БД
+├── conftest.py           # Конфигурация тестов
+├── test_autopost.py      # Тесты основного скрипта
+├── test_bot.py           # Тесты бота
+├── test_config.py        # Тесты конфигурации
+├── test_database.py      # Тесты БД
 ├── test_jupyter_parser.py # Тесты парсера
-├── test_learning.py # Тесты обучения
-├── test_moderator.py # Тесты модерации
+├── test_learning.py      # Тесты обучения
+├── test_moderator.py     # Тесты модерации
 ├── test_post_templates.py # Тесты шаблонов
-└── test_utils.py    # Тесты утилит
-```
-
-### Конфигурация
-
-```
-.
-├── config.py         # Основные настройки
-│   ├── Переменные окружения
-│   ├── Пути
-│   └── Константы
-├── config.json      # Дополнительная конфигурация
-├── .env            # Конфигурация окружения
-├── .env.example    # Пример конфигурации
-└── requirements.txt # Зависимости
-```
-
-### CI/CD
-
-```
-.github/
-└── workflows/      # GitHub Actions
-    ├── check.yml  # Проверка кода
-    ├── test.yml   # Запуск тестов
-    └── deploy.yml # Деплой
+└── test_utils.py         # Тесты утилит
 ```
 
 ## Разработка
@@ -106,7 +97,46 @@ tests/
 - Проверяйте код с помощью [flake8](https://flake8.pycqa.org/)
 - Используйте [mypy](https://mypy.readthedocs.io/) для проверки типов
 
-### Тестирование
+### Рабочий процесс
+
+1. Создайте новую ветку для задачи:
+```bash
+git checkout -b feature/your-feature-name
+```
+
+2. Внесите изменения и закоммитьте:
+```bash
+git add .
+git commit -m "feat: add new feature"
+```
+
+3. Запушьте изменения:
+```bash
+git push origin feature/your-feature-name
+```
+
+4. Создайте Pull Request
+
+### Локальная разработка
+
+1. Запустите Redis:
+```bash
+docker run -d -p 6379:6379 redis
+```
+
+2. Запустите MLflow:
+```bash
+mlflow server --host 0.0.0.0
+```
+
+3. Запустите бота в режиме разработки:
+```bash
+python src/main.py --dev
+```
+
+## Тестирование
+
+### Запуск тестов
 
 1. Запустите все тесты:
 ```bash
@@ -115,27 +145,33 @@ pytest
 
 2. Запустите тесты с покрытием:
 ```bash
-pytest --cov=scripts tests/
+pytest --cov=src tests/
 ```
 
 3. Запустите тесты с отчетом:
 ```bash
-pytest --cov=scripts --cov-report=html tests/
+pytest --cov=src --cov-report=html tests/
 ```
 
-### Проверка кода
+### Написание тестов
 
-Для проверки кода используйте скрипт `scripts/check.py`:
+1. Создайте новый файл теста в директории `tests/`
+2. Используйте фикстуры из `conftest.py`
+3. Следуйте паттерну AAA (Arrange-Act-Assert)
 
-```bash
-python scripts/check.py
+Пример:
+```python
+def test_post_generation():
+    # Arrange
+    generator = PostGenerator()
+    
+    # Act
+    post = generator.generate_morning_post()
+    
+    # Assert
+    assert post is not None
+    assert len(post) > 0
 ```
-
-Скрипт выполнит:
-1. Проверку безопасности (safety, bandit)
-2. Проверку типов (mypy)
-3. Запуск тестов (pytest)
-4. Проверку форматирования (black, isort, flake8)
 
 ## Деплой
 
@@ -150,19 +186,19 @@ cp .env.example .env.prod
 
 ### Процесс деплоя
 
-1. Запустите скрипт деплоя:
+1. Соберите Docker образ:
 ```bash
-python scripts/deploy.py
+docker build -t ronin-tg-app:latest .
 ```
 
-2. Проверьте логи:
+2. Запустите контейнер:
+```bash
+docker run -d --env-file .env.prod ronin-tg-app:latest
+```
+
+3. Проверьте логи:
 ```bash
 docker logs -f ronin-tg-app
-```
-
-3. Проверьте метрики:
-```bash
-curl http://localhost:9090/metrics
 ```
 
 ## Мониторинг
@@ -191,7 +227,7 @@ curl http://localhost:9090/metrics
 Для кеширования используется Redis. Основные операции:
 
 ```python
-from scripts.cache import cache
+from utils.cache import cache
 
 # Кеширование результата функции
 @cache.cached(ttl=3600)
@@ -208,7 +244,7 @@ value = await cache.get("key")
 Для ограничения частоты запросов используется rate limiting:
 
 ```python
-from scripts.moderator import RateLimit
+from core.moderation import RateLimit
 
 rate_limit = RateLimit(calls=5, period=60)
 
@@ -228,7 +264,7 @@ safety check
 
 2. Проверка кода:
 ```bash
-bandit -r scripts/
+bandit -r src/
 ```
 
 ### Рекомендации
@@ -243,104 +279,34 @@ bandit -r scripts/
 
 ### Локальная отладка
 
-1. Запустите Redis:
+1. Включите режим отладки:
 ```bash
-redis-server
+export DEBUG=1
 ```
 
-2. Запустите бота в режиме отладки:
-```bash
-python -m pdb scripts/autopost.py
-```
-
-### Логирование
-
-Используйте структурированное логирование:
-
+2. Используйте логирование:
 ```python
-import structlog
+import logging
 
-logger = structlog.get_logger()
-logger.info("event_name", key=value)
+logging.debug("Debug message")
+logging.info("Info message")
+logging.warning("Warning message")
+logging.error("Error message")
 ```
 
-## База знаний
-
-### Структура
-
-База знаний (`data/knowledge_base.json`) содержит структурированную информацию о Data Science в формате JSON:
-
-```json
-{
-    "concepts": {
-        "data_science": {
-            "description": "Описание концепции",
-            "key_points": ["Ключевые моменты"],
-            "resources": ["Ссылки на ресурсы"]
-        }
-    },
-    "tools": {
-        "python": {
-            "description": "Описание инструмента",
-            "libraries": ["Список библиотек"],
-            "resources": ["Ссылки на ресурсы"]
-        }
-    },
-    "datasets": {
-        "titanic": {
-            "description": "Описание набора данных",
-            "features": ["Особенности данных"],
-            "url": "Ссылка на набор данных"
-        }
-    }
-}
+3. Используйте pdb для отладки:
+```python
+import pdb; pdb.set_trace()
 ```
 
-### Использование
+### Профилирование
 
-База знаний используется в следующих компонентах:
+1. Запустите профилирование:
+```bash
+python -m cProfile -o output.prof src/main.py
+```
 
-1. **PostGenerator** (`scripts/post_templates.py`):
-   - Генерация образовательного контента
-   - Создание постов с информацией о концепциях
-   - Рекомендации ресурсов
-
-2. **JupyterParser** (`scripts/jupyter_parser.py`):
-   - Связывание ноутбуков с концепциями
-   - Добавление контекстной информации
-   - Генерация описаний
-
-3. **Moderator** (`scripts/moderator.py`):
-   - Проверка релевантности контента
-   - Фильтрация по темам
-   - Рекомендации по улучшению
-
-### Расширение
-
-Для добавления новой информации в базу знаний:
-
-1. Выберите подходящую категорию (concepts/tools/datasets)
-2. Добавьте новый элемент с уникальным ключом
-3. Заполните все обязательные поля:
-   - description
-   - key_points/features/libraries
-   - resources/url
-
-Пример:
-```json
-{
-    "concepts": {
-        "new_concept": {
-            "description": "Описание новой концепции",
-            "key_points": [
-                "Ключевой момент 1",
-                "Ключевой момент 2"
-            ],
-            "resources": [
-                "https://example.com/resource1",
-                "https://example.com/resource2"
-            ]
-        }
-    }
-}
+2. Анализируйте результаты:
+```bash
+python -m pstats output.prof
 ```

@@ -1,97 +1,77 @@
 """
-Тесты для модуля парсинга Jupyter ноутбуков (jupyter_parser.py).
+Тесты для модуля парсинга Jupyter ноутбуков (notebook_parser.py).
 """
 import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from typing import Dict
+from src.core.learning.notebook_parser import NotebookParser
 
-from scripts.jupyter_parser import JupyterParser
+@pytest.fixture
+def notebook_parser() -> NotebookParser:
+    """Фикстура для создания парсера ноутбуков."""
+    return NotebookParser()
 
-class TestJupyterParser:
-    """Тесты для класса JupyterParser."""
+@pytest.fixture
+def sample_notebook() -> Dict:
+    """Фикстура с примером ноутбука."""
+    return {
+        "cells": [
+            {
+                "cell_type": "code",
+                "source": ["accuracy = 0.95\n", "loss = 0.1"],
+                "outputs": [],
+            },
+            {"cell_type": "markdown", "source": ["# Test Notebook"]},
+        ]
+    }
 
-    @pytest.fixture
-    def parser(self, temp_dir):
-        """Создает экземпляр парсера для тестов."""
-        return JupyterParser(temp_dir)
+def test_parse_notebook(notebook_parser: NotebookParser, sample_notebook: Dict):
+    """Тест парсинга ноутбука."""
+    result = notebook_parser.parse_notebook(sample_notebook)
+    assert isinstance(result, dict)
+    assert "metrics" in result
+    assert "code_snippets" in result
+    assert "plots" in result
+    assert "summary" in result
 
-    def test_init(self, parser, temp_dir):
-        """Проверка инициализации парсера."""
-        assert parser.notebooks_dir == temp_dir
-        assert parser.exporter is not None
-
-    def test_parse_notebook(self, parser, sample_notebook):
-        """Проверка парсинга ноутбука."""
-        result = parser.parse_notebook(sample_notebook)
-        assert isinstance(result, dict)
-        assert "metrics" in result
-        assert "code" in result
-        assert "summary" in result
-
-    def test_extract_metrics(self, parser):
-        """Проверка извлечения метрик."""
-        code = """
-        accuracy = 0.95
-        loss = 0.05
-        f1_score = 0.94
-        """
-        metrics = parser._extract_metrics(code)
-        assert "accuracy" in metrics
-        assert "loss" in metrics
-        assert "f1_score" in metrics
-        assert metrics["accuracy"] == 0.95
-
-    def test_extract_code(self, parser):
-        """Проверка извлечения кода."""
-        code = """
-        # TODO: Fix this
-        def test():
-            pass
-        # FIXME: Add error handling
-        """
-        code_snippets = parser._extract_code(code)
-        assert len(code_snippets) == 0  # Код с TODO/FIXME игнорируется
-
-        code = """
-        def test():
-            return True
-        """
-        code_snippets = parser._extract_code(code)
-        assert len(code_snippets) > 0
-
-    def test_extract_plots(self, parser):
-        """Проверка извлечения графиков."""
-        output = {
-            "data": {
-                "image/png": "base64_encoded_image"
+def test_parse_notebook_with_invalid_cell(notebook_parser: NotebookParser):
+    """Тест парсинга ноутбука с невалидной ячейкой."""
+    notebook = {
+        "cells": [
+            {
+                "cell_type": "code",
+                "source": ["invalid code"],
+                "outputs": []
             }
-        }
-        plots = parser._extract_plots(output)
-        assert isinstance(plots, list)
-        assert len(plots) > 0
+        ]
+    }
+    result = notebook_parser.parse_notebook(notebook)
+    assert isinstance(result, dict)
+    assert "metrics" in result
+    assert "code_snippets" in result
 
-    def test_generate_summary(self, parser):
-        """Проверка генерации описания."""
-        markdown = """
-        # Заголовок 1
-        Описание 1
-        ## Подзаголовок
-        Описание 2
-        """
-        summary = parser._generate_summary(markdown)
-        assert isinstance(summary, str)
-        assert "Заголовок 1" in summary
-        assert "Описание 1" in summary
+def test_parse_notebook_with_empty_cells(notebook_parser: NotebookParser):
+    """Тест парсинга ноутбука с пустыми ячейками."""
+    notebook = {"cells": []}
+    result = notebook_parser.parse_notebook(notebook)
+    assert isinstance(result, dict)
+    assert result["metrics"] == {}
+    assert result["code_snippets"] == []
+    assert result["plots"] == []
+    assert result["summary"] == ""
 
-    def test_get_latest_notebook(self, parser, sample_notebook):
-        """Проверка получения последнего ноутбука."""
-        latest = parser.get_latest_notebook()
-        assert isinstance(latest, Path)
-        assert latest.exists()
+def test_parse_notebook_with_missing_metadata(notebook_parser: NotebookParser):
+    """Тест парсинга ноутбука с отсутствующими метаданными."""
+    notebook = {}
+    result = notebook_parser.parse_notebook(notebook)
+    assert isinstance(result, dict)
+    assert result["metrics"] == {}
+    assert result["code_snippets"] == []
+    assert result["plots"] == []
+    assert result["summary"] == ""
 
-    def test_get_notebook_metrics(self, parser, sample_notebook):
-        """Проверка получения метрик ноутбука."""
-        metrics_df = parser.get_notebook_metrics()
-        assert not metrics_df.empty
-        assert "accuracy" in metrics_df.columns
-        assert "loss" in metrics_df.columns 
+def test_get_notebook_metrics(notebook_parser: NotebookParser, sample_notebook: Dict):
+    """Тест получения метрик из ноутбука."""
+    metrics = notebook_parser.get_notebook_metrics(sample_notebook)
+    assert isinstance(metrics, dict)
+    assert metrics.get("accuracy") == 0.95
+    assert metrics.get("loss") == 0.1 

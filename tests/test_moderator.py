@@ -1,143 +1,150 @@
 """
-Тесты для модуля модерации (moderator.py).
+Тесты для модуля модерации (vote_manager.py).
 """
 import pytest
-from datetime import datetime, timedelta
-from unittest.mock import patch, MagicMock
-from src.moderation.moderator import Moderator
-from src.database.database import Database
+import pytest_asyncio
+from datetime import datetime
+from unittest.mock import MagicMock, AsyncMock
+from src.core.moderation.vote_manager import VoteManager
+from src.utils.database.db_manager import DatabaseManager
+from telegram import Update, Message, User
+from telegram.ext import ContextTypes
+from typing import AsyncGenerator, Dict, Any
+import tempfile
+import os
 
-class TestModerator:
-    """Тесты для класса Moderator."""
+@pytest_asyncio.fixture
+async def db_async() -> AsyncGenerator[DatabaseManager, None]:
+    """Фикстура для тестовой базы данных."""
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        db_path = tmp.name
+    db = DatabaseManager(db_path)
+    await db.init_db()
+    try:
+        yield db
+    finally:
+        await db.close()
+        os.unlink(db_path)
 
-    @pytest.fixture
-    def db(self):
-        return Database(":memory:")
+@pytest_asyncio.fixture
+async def moderator(db_async: DatabaseManager) -> AsyncGenerator[VoteManager, None]:
+    """Фикстура для создания менеджера голосований."""
+    yield VoteManager(db_async)
 
-    @pytest.fixture
-    def moderator(self, db):
-        return Moderator(db)
+@pytest.mark.asyncio
+class TestVoteManager:
+    """Тесты для класса VoteManager."""
 
-    def test_init(self, moderator):
-        """Проверка инициализации модератора."""
-        assert moderator.banned_words is not None
-        assert moderator.spam_patterns is not None
-        assert moderator.user_stats is not None
-        assert moderator.blocked_users is not None
+    async def test_init(self, moderator: VoteManager) -> None:
+        """Проверка инициализации менеджера голосований."""
+        assert moderator is not None
+        assert hasattr(moderator, "db_manager")
 
-    def test_check_message_valid(self, moderator):
-        """Проверка валидного сообщения."""
-        message = "Привет, как дела?"
-        is_valid, reason = moderator.check_message(message, 123456)
-        assert is_valid is True
-        assert reason is None
-
-    def test_check_message_banned_words(self, moderator):
-        """Проверка сообщения с запрещенными словами."""
-        message = "Спам реклама купить"
-        is_valid, reason = moderator.check_message(message, 123456)
-        assert is_valid is False
-        assert "запрещенные слова" in reason.lower()
-
-    def test_check_message_spam(self, moderator):
-        """Проверка спам-сообщения."""
-        message = "!!!!! СПАМ !!!!!"
-        is_valid, reason = moderator.check_message(message, 123456)
-        assert is_valid is False
-        assert "спам" in reason.lower()
-
-    def test_check_message_rate_limit(self, moderator):
-        """Проверка ограничения частоты сообщений."""
-        user_id = 123456
-        # Отправляем сообщения быстрее лимита
-        for _ in range(6):
-            is_valid, _ = moderator.check_message("test", user_id)
-        is_valid, reason = moderator.check_message("test", user_id)
-        assert is_valid is False
-        assert "слишком часто" in reason.lower()
-
-    def test_handle_violation(self, moderator):
-        """Проверка обработки нарушения."""
-        user_id = 123456
-        # Первое нарушение
-        moderator.handle_violation(user_id)
-        assert user_id not in moderator.blocked_users
-        assert moderator.user_stats[user_id]["warnings"] == 1
-
-        # Второе нарушение
-        moderator.handle_violation(user_id)
-        assert user_id not in moderator.blocked_users
-        assert moderator.user_stats[user_id]["warnings"] == 2
-
-        # Третье нарушение (блокировка)
-        moderator.handle_violation(user_id)
-        assert user_id in moderator.blocked_users
-        assert moderator.user_stats[user_id]["warnings"] == 3
-
-    def test_unblock_user(self, moderator):
-        """Проверка разблокировки пользователя."""
-        user_id = 123456
-        moderator.blocked_users.add(user_id)
-        moderator.user_stats[user_id] = {"warnings": 3, "messages": 10}
-        
-        success = moderator.unblock_user(user_id)
+    @pytest.mark.asyncio
+    async def test_create_vote(self, moderator: VoteManager, db_async: DatabaseManager) -> None:
+        """Проверка создания голосования."""
+        topic = "Test Topic"
+        success = await moderator.create_vote(topic)
         assert success is True
-        assert user_id not in moderator.blocked_users
-        assert moderator.user_stats[user_id]["warnings"] == 0
 
-    def test_get_user_stats(self, moderator, db):
-        """Проверка получения статистики пользователя."""
-        user_id = 1
-        chat_id = 1
+        # Проверяем, что тема создана в базе
+        topics = await db_async.get_topics()
+        assert len(topics) == 1
+        assert topics[0]["topic"] == topic
 
-        # Добавляем тестовые сообщения
-        for _ in range(5):
-            db.add_message(user_id, chat_id, "test message")
+    @pytest.mark.asyncio
+    async def test_add_vote(self, moderator: VoteManager, db_async: DatabaseManager) -> None:
+        """Проверка добавления голоса."""
+        # Создаем тему
+        topic = "Test Topic"
+        await moderator.create_vote(topic)
+        topics = await db_async.get_topics()
+        topic_id = topics[0]["id"]
 
-        # Тест на получение статистики
-        stats = moderator.get_user_stats(user_id)
-        assert stats["total_messages"] == 5
-        assert stats["warnings"] == 0
-        assert stats["is_banned"] is False
+        # Добавляем голос
+        success = await moderator.add_vote(topic_id)
+        assert success is True
 
-    def test_reset_user_stats(self, moderator):
-        """Проверка сброса статистики пользователя."""
-        user_id = 123456
-        moderator.user_stats[user_id] = {
-            "messages": 10,
-            "warnings": 2,
-            "last_message": datetime.now()
-        }
-        
-        moderator.reset_user_stats(user_id)
-        assert user_id not in moderator.user_stats
+        # Проверяем, что голос увеличился
+        topic_row = (await db_async.get_topics())[0]
+        assert topic_row["votes"] == 1
 
-    def test_check_message_blocked_user(self, moderator):
-        """Проверка сообщения от заблокированного пользователя."""
-        user_id = 123456
-        moderator.blocked_users.add(user_id)
-        
-        is_valid, reason = moderator.check_message("test", user_id)
-        assert is_valid is False
-        assert "заблокирован" in reason.lower()
+    @pytest.mark.asyncio
+    async def test_get_top_topics(self, moderator: VoteManager, db_async: DatabaseManager) -> None:
+        """Проверка получения топ тем."""
+        # Создаем несколько тем
+        topics = ["Topic 1", "Topic 2", "Topic 3"]
+        for topic in topics:
+            await moderator.create_vote(topic)
 
-    def test_check_message_frequency(self, moderator, db):
-        # Тест на нормальную частоту сообщений
-        user_id = 1
-        assert moderator._check_message_frequency(user_id) is True
+        # Получаем топ темы
+        top_topics = await moderator.get_top_topics(limit=2)
+        assert len(top_topics) == 2
+        assert all(isinstance(topic, dict) for topic in top_topics)
 
-        # Тест на слишком частые сообщения
-        for _ in range(6):
-            db.add_message(user_id, 1, "test message")
-        assert moderator._check_message_frequency(user_id) is False
+    @pytest.mark.asyncio
+    async def test_get_vote_results(self, moderator: VoteManager, db_async: DatabaseManager) -> None:
+        """Проверка получения результатов голосования."""
+        # Создаем тему
+        topic = "Test Topic"
+        await moderator.create_vote(topic)
+        topics = await db_async.get_topics()
+        topic_id = topics[0]["id"]
 
-    def test_check_message_length(self, moderator):
-        # Тест на нормальную длину сообщения
-        assert moderator._check_message_length("Normal message") is True
+        # Добавляем голос
+        await moderator.add_vote(topic_id)
 
-        # Тест на слишком длинное сообщение
-        long_message = "a" * 1001
-        assert moderator._check_message_length(long_message) is False
+        # Получаем результаты
+        results = await moderator.get_vote_results(topic_id)
+        assert results is not None
+        assert results["topic"] == topic
+        assert results["votes"] == 1
 
-    def test_check_spam(self, moderator, db):
-        assert "заблокирован" in reason.lower() 
+@pytest.mark.parametrize("topic,expected_success", [
+    ("Valid Topic", True),
+    ("", False),
+    ("Topic with special chars !@#$%", True)
+])
+@pytest.mark.asyncio
+async def test_create_vote_parametrized(
+    moderator: VoteManager,
+    db_async: DatabaseManager,
+    topic: str,
+    expected_success: bool
+) -> None:
+    """Параметризованный тест создания голосования."""
+    success = await moderator.create_vote(topic)
+    assert success == expected_success
+
+    if expected_success:
+        topics = await db_async.get_topics()
+        assert len(topics) == 1
+        assert topics[0]["topic"] == topic
+
+@pytest.mark.parametrize("vote_count,expected_votes", [
+    (1, 1),
+    (5, 5),
+    (10, 10)
+])
+@pytest.mark.asyncio
+async def test_add_vote_parametrized(
+    moderator: VoteManager,
+    db_async: DatabaseManager,
+    vote_count: int,
+    expected_votes: int
+) -> None:
+    """Параметризованный тест добавления голосов."""
+    # Создаем тему
+    topic = "Test Topic"
+    await moderator.create_vote(topic)
+    topics = await db_async.get_topics()
+    topic_id = topics[0]["id"]
+
+    # Добавляем указанное количество голосов
+    for _ in range(vote_count):
+        await moderator.add_vote(topic_id)
+
+    # Проверяем результаты
+    results = await moderator.get_vote_results(topic_id)
+    assert results is not None
+    assert results["votes"] == expected_votes 

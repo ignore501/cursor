@@ -1,166 +1,152 @@
+"""
+Тесты для работы с базой данных.
+"""
 import pytest
-from datetime import datetime, timedelta
-from src.database.database import Database
+import pytest_asyncio
+pytest_plugins = ["pytest_asyncio"]
+from src.utils.database.db_manager import DatabaseManager
+import os
+from typing import AsyncGenerator
+import aiosqlite
+from datetime import datetime
 
-@pytest.fixture
-def db():
-    return Database(":memory:")
+@pytest_asyncio.fixture
+async def db() -> DatabaseManager:
+    """Фикстура для создания тестовой базы данных."""
+    test_db_path = "test_database.db"
+    db = DatabaseManager(test_db_path)
+    await db.initialize()
+    try:
+        yield db
+    finally:
+        await db.close()  # Сначала закрываем соединение
+        if os.path.exists(test_db_path):
+            try:
+                os.remove(test_db_path)
+            except PermissionError:
+                pass  # Игнорируем ошибку, если файл все еще занят
 
-def test_add_user(db):
-    # Тест на добавление пользователя
-    user_id = 1
+@pytest.mark.asyncio
+async def test_database_initialization(db):
+    """Тест инициализации базы данных."""
+    assert db is not None
+    assert db.connection is not None
+
+@pytest.mark.asyncio
+async def test_user_operations(db):
+    """Тест операций с пользователями."""
+    user_id = 123
     username = "test_user"
     first_name = "Test"
     last_name = "User"
-
-    assert db.add_user(user_id, username, first_name, last_name) is True
-    user = db.get_user(user_id)
+    
+    # Добавление пользователя
+    await db.add_user(user_id, username, first_name, last_name)
+    
+    # Получение пользователя
+    user = await db.get_user(user_id)
+    assert user is not None
     assert user["user_id"] == user_id
     assert user["username"] == username
     assert user["first_name"] == first_name
     assert user["last_name"] == last_name
-    assert user["is_banned"] is False
-    assert user["warnings"] == 0
-
-def test_update_user(db):
-    # Тест на обновление пользователя
-    user_id = 1
-    db.add_user(user_id, "old_username", "Old", "User")
     
-    new_username = "new_username"
-    assert db.update_user(user_id, username=new_username) is True
-    user = db.get_user(user_id)
-    assert user["username"] == new_username
+    # Проверка блокировки
+    assert await db.is_user_blocked(user_id) is False
+    await db.block_user(user_id)
+    assert await db.is_user_blocked(user_id) is True
+    await db.unblock_user(user_id)
+    assert await db.is_user_blocked(user_id) is False
 
-def test_add_message(db):
-    # Тест на добавление сообщения
-    user_id = 1
-    chat_id = 1
-    text = "Test message"
-
-    assert db.add_message(user_id, chat_id, text) is True
-    message = db.get_message(1)  # Первое сообщение имеет id=1
+@pytest.mark.asyncio
+async def test_message_operations(db):
+    """Тест операций с сообщениями."""
+    user_id = 123
+    message_text = "Test message"
+    
+    # Очищаем предыдущие сообщения
+    async with aiosqlite.connect(db.db_path) as conn:
+        await conn.execute("DELETE FROM messages WHERE user_id = ?", (user_id,))
+        await conn.commit()
+    
+    # Добавление сообщения
+    message_id = await db.add_message(user_id, message_text)
+    assert message_id is not None
+    
+    # Получение сообщения
+    message = await db.get_message(message_id)
+    assert message is not None
     assert message["user_id"] == user_id
-    assert message["chat_id"] == chat_id
-    assert message["text"] == text
-    assert message["is_deleted"] is False
-
-def test_delete_message(db):
-    # Тест на удаление сообщения
-    user_id = 1
-    chat_id = 1
-    text = "Test message"
-    db.add_message(user_id, chat_id, text)
-
-    assert db.delete_message(1) is True
-    message = db.get_message(1)
-    assert message["is_deleted"] is True
-
-def test_add_topic(db):
-    # Тест на добавление темы
-    name = "Test Topic"
-    description = "Test Description"
-
-    assert db.add_topic(name, description) is True
-    topic = db.get_topic(1)  # Первая тема имеет id=1
-    assert topic["name"] == name
-    assert topic["description"] == description
-    assert topic["is_active"] is True
-
-def test_add_topic_vote(db):
-    # Тест на добавление голоса за тему
-    user_id = 1
-    topic_id = 1
-    db.add_user(user_id, "test_user", "Test", "User")
-    db.add_topic("Test Topic", "Test Description")
-
-    assert db.add_topic_vote(user_id, topic_id) is True
-    vote = db.get_topic_vote(1)  # Первый голос имеет id=1
-    assert vote["user_id"] == user_id
-    assert vote["topic_id"] == topic_id
-
-def test_add_progress(db):
-    # Тест на добавление прогресса
-    user_id = 1
-    topic_id = 1
-    total_tasks = 5
-    db.add_user(user_id, "test_user", "Test", "User")
-    db.add_topic("Test Topic", "Test Description")
-
-    assert db.add_progress(user_id, topic_id, total_tasks) is True
-    progress = db.get_progress(1)  # Первый прогресс имеет id=1
-    assert progress["user_id"] == user_id
-    assert progress["topic_id"] == topic_id
-    assert progress["completed_tasks"] == 0
-    assert progress["total_tasks"] == total_tasks
-
-def test_update_progress(db):
-    # Тест на обновление прогресса
-    user_id = 1
-    topic_id = 1
-    total_tasks = 5
-    db.add_user(user_id, "test_user", "Test", "User")
-    db.add_topic("Test Topic", "Test Description")
-    db.add_progress(user_id, topic_id, total_tasks)
-
-    completed_tasks = 3
-    assert db.update_progress(1, completed_tasks) is True
-    progress = db.get_progress(1)
-    assert progress["completed_tasks"] == completed_tasks
-
-def test_add_feedback(db):
-    # Тест на добавление отзыва
-    user_id = 1
-    rating = 5
-    comment = "Great bot!"
-    db.add_user(user_id, "test_user", "Test", "User")
-
-    assert db.add_feedback(user_id, rating, comment) is True
-    feedback = db.get_feedback(1)  # Первый отзыв имеет id=1
-    assert feedback["user_id"] == user_id
-    assert feedback["rating"] == rating
-    assert feedback["comment"] == comment
-
-def test_add_metric(db):
-    # Тест на добавление метрики
-    user_id = 1
-    metric_name = "accuracy"
-    metric_value = 0.95
-    db.add_user(user_id, "test_user", "Test", "User")
-
-    assert db.add_metric(user_id, metric_name, metric_value) is True
-    metric = db.get_metric(1)  # Первая метрика имеет id=1
-    assert metric["user_id"] == user_id
-    assert metric["metric_name"] == metric_name
-    assert metric["metric_value"] == metric_value
-
-def test_get_user_messages(db):
-    # Тест на получение сообщений пользователя
-    user_id = 1
-    chat_id = 1
-    db.add_user(user_id, "test_user", "Test", "User")
+    assert message["text"] == message_text
     
-    messages = ["Message 1", "Message 2", "Message 3"]
-    for text in messages:
-        db.add_message(user_id, chat_id, text)
+    # Получение сообщений пользователя
+    messages = await db.get_user_messages(user_id)
+    assert len(messages) == 1
+    assert messages[0]["text"] == message_text
 
-    user_messages = db.get_user_messages(user_id)
-    assert len(user_messages) == 3
-    for i, message in enumerate(user_messages):
-        assert message["text"] == messages[i]
-
-def test_get_topic_votes(db):
-    # Тест на получение голосов за тему
-    user_ids = [1, 2, 3]
-    topic_id = 1
-    db.add_topic("Test Topic", "Test Description")
+@pytest.mark.asyncio
+async def test_topic_operations(db):
+    """Тест операций с темами."""
+    user_id = 123
+    topic = "Test topic"
     
-    for user_id in user_ids:
-        db.add_user(user_id, f"user{user_id}", "Test", "User")
-        db.add_topic_vote(user_id, topic_id)
+    # Очищаем предыдущие темы
+    async with aiosqlite.connect(db.db_path) as conn:
+        await conn.execute("DELETE FROM topics")
+        await conn.commit()
+    
+    # Добавление темы
+    topic_id = await db.add_topic(topic)
+    assert topic_id is not None
+    
+    # Получение темы
+    topic_data = await db.get_topic(topic_id)
+    assert topic_data is not None
+    assert topic_data["id"] == topic_id
+    assert topic_data["topic"] == topic
 
-    votes = db.get_topic_votes(topic_id)
-    assert len(votes) == 3
-    for vote in votes:
-        assert vote["topic_id"] == topic_id
-        assert vote["user_id"] in user_ids 
+@pytest.mark.asyncio
+async def test_vote_operations(db):
+    """Тест операций с голосами."""
+    user_id = 123
+    topic = "Test topic"
+    
+    # Добавление темы
+    topic_id = await db.add_topic(topic)
+    
+    # Добавление голоса
+    vote_type = "up"
+    await db.add_vote(user_id, topic_id, vote_type)
+    
+    # Получение голосов
+    votes = await db.get_votes(topic_id)
+    assert len(votes) == 1
+    assert votes[0]["user_id"] == user_id
+    assert votes[0]["topic_id"] == topic_id
+    assert votes[0]["vote_type"] == vote_type
+
+@pytest.mark.asyncio
+async def test_user_stats(db):
+    """Тест получения статистики пользователя."""
+    user_id = 123
+    username = "test_user"
+    
+    # Очищаем предыдущие данные
+    async with aiosqlite.connect(db.db_path) as conn:
+        await conn.execute("DELETE FROM messages WHERE user_id = ?", (user_id,))
+        await conn.execute("DELETE FROM topics")
+        await conn.commit()
+    
+    # Добавление пользователя
+    await db.add_user(user_id, username)
+    
+    # Добавление сообщений и тем
+    await db.add_message(user_id, "Message 1")
+    await db.add_message(user_id, "Message 2")
+    await db.add_topic("Test topic")
+    
+    # Получение статистики
+    stats = await db.get_user_stats(user_id)
+    assert stats is not None
+    assert stats["message_count"] == 2
+    assert stats["topic_count"] == 1 
